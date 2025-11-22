@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use rand::prelude::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
