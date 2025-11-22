@@ -243,7 +243,6 @@ impl Chance {
 
     fn upgrade_cost(&self) -> Option<f64> {
         match self {
-            // TODO: Check these
             C20 => Some(1e-2),
             C25 => Some(1e-1),
             C30 => Some(1e0),
