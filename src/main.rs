@@ -22,9 +22,12 @@ fn round_to_cent(cash: f64) -> f64 {
 struct State {
     heads_chance: Chance,
     coin: Coin,
-    heads_combo_mult: f64,
+    heads_combo_mult: ComboMult,
     cash: f64,
+}
 
+struct SimResults {
+    flips: usize,
     histo: [usize; 11],
 }
 
@@ -33,55 +36,24 @@ impl State {
         Self {
             heads_chance: C20,
             coin: Penny,
-            heads_combo_mult: 0.5,
+            heads_combo_mult: ComboMult::Combo1_0x,
             cash: 0.0,
-
-            histo: [0; 11],
         }
-    }
-
-    fn combo_reward(&self, streak: u32) -> f64 {
-        assert!(streak >= 1);
-        assert!(streak <= 10);
-        self.coin.dollars() * self.heads_combo_mult.powi(streak as i32 - 1).ceil()
     }
 
     fn dollars(&self) -> String {
         format!("${:.2}", self.cash)
     }
 
-    fn flip_until_10(&mut self) -> usize {
+    fn flip_until_10(&mut self) -> SimResults {
         let mut flips = 0;
         let mut streak = 0;
+        let mut histo = [0_usize; 11];
 
         loop {
             // Try to upgrade anything if we can
-            {
-                // Coin
-                if let Some(cost) = self.coin.upgrade_cost()
-                    && self.cash >= cost
-                {
-                    println!("[{flips:>3}] {}", self.dollars());
+            self.try_upgrade(flips);
 
-                    let old = self.coin.clone();
-                    self.coin.upgrade();
-                    self.cash -= cost;
-                    println!("    {old:?} -> {:?}", self.coin);
-                }
-
-                // Heads Chance
-                if let Some(cost) = self.heads_chance.upgrade_cost()
-                    && self.cash >= cost
-                {
-                    println!("[{flips:>3}] {}", self.dollars());
-
-                    let old = self.heads_chance.clone();
-                    self.heads_chance.upgrade();
-                    self.cash -= cost;
-                    println!("    {old:?} -> {:?}", self.heads_chance);
-                }
-
-            }
             assert!(self.cash >= 0.0, "cash={:.2}", self.cash);
             {
                 let cash = self.cash;
@@ -96,48 +68,106 @@ impl State {
             let next = flip(self);
             flips += 1;
 
+            // On heads, gain money
             if next == H {
                 streak += 1;
 
-                let gain = self.combo_reward(streak);
-                // println!("[{flips:>3}] {next:?} {} + ${gain:.2}", self.dollars());
+                let gain = self.coin.dollars() * self.heads_combo_mult.mult(streak);
                 self.cash += gain;
                 self.cash = round_to_cent(self.cash);
+            }
+
+            // Handle ending a streak
+            if next == T || streak == 10 {
+                if histo[streak as usize] == 0 {
+                    println!(
+                        "[{flips:>5}] {cash:>10} Streak! {streak}",
+                        cash = self.dollars()
+                    );
+                }
+                histo[streak as usize] += 1;
 
                 if streak == 10 {
-                    self.histo[streak as usize] += 1;
                     break;
                 }
-            } else {
-                // if streak > 0 {
-                //     println!("    streak = {streak}");
-                // }
-                self.histo[streak as usize] += 1;
                 streak = 0;
             }
         }
         println!();
 
-        flips
+        SimResults { flips, histo }
+    }
+
+    fn try_upgrade(&mut self, flips: usize) {
+        // TODO: Take a thing to upgrade instead.
+
+        // Coin
+        if let Some(cost) = self.coin.upgrade_cost()
+            && self.cash >= cost
+        {
+            let cash = self.dollars();
+
+            let old = self.coin.clone();
+            self.coin.upgrade();
+            self.cash -= cost;
+            println!("[{flips:>5}] {cash:>10} ++ {old:?} -> {:?}", self.coin);
+        }
+
+        // Heads Chance
+        if let Some(cost) = self.heads_chance.upgrade_cost()
+            && self.cash >= cost
+        {
+            let cash = self.dollars();
+
+            let old = self.heads_chance.clone();
+            self.heads_chance.upgrade();
+            self.cash -= cost;
+            println!(
+                "[{flips:>5}] {cash:>10} ++ {old:?} -> {:?}",
+                self.heads_chance
+            );
+        }
+
+        // Combo Mult
+        if let Some(cost) = self.heads_combo_mult.upgrade_cost()
+            && self.cash >= cost
+        {
+            let cash = self.dollars();
+
+            let old = self.heads_combo_mult.clone();
+            self.heads_combo_mult.upgrade();
+            self.cash -= cost;
+            println!(
+                "[{flips:>5}] {cash:>10} ++ {old:?} -> {:?}",
+                self.heads_combo_mult
+            );
+        }
     }
 }
 
 fn main() {
-    let mut state = State::new();
-    let flips = state.flip_until_10();
+    // do it twice
+    for _ in 0..2 {
+        println!("################################");
+        let mut state = State::new();
+        let SimResults { flips, histo } = state.flip_until_10();
 
-    println!("Got 10-Heads in {flips} flips:");
-    println!("   Odds: {:.2}%", state.heads_chance.odds() * 100.);
-    println!("   Coin: {:?}", state.coin);
-    for (i, &count) in state.histo.iter().enumerate() {
-        if count == 0 {
-            continue;
+        println!("Got 10-Heads in {flips} flips:");
+        println!("   Odds:  {:.0}%", state.heads_chance.odds() * 100.);
+        println!("   Combo: {:?}", state.heads_combo_mult);
+        println!("   Coin:  {:?}", state.coin);
+        for (i, &count) in histo.iter().enumerate() {
+            if count == 0 {
+                continue;
+            }
+            if i > 0 {
+                println!("    {i:>2}-run: {count} time(s)")
+            } else {
+                println!("     tails: {count} time(s)");
+            }
         }
-        if i > 0 {
-            println!("    {i:>2}-run: {count} time(s)")
-        } else {
-            println!("     tails: {count} time(s)");
-        }
+        println!("################################");
+        println!();
     }
 }
 
@@ -244,6 +274,57 @@ impl Chance {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ComboMult {
+    Combo1_0x,
+    Combo1_5x,
+    Combo2_0x,
+    Combo2_5x,
+    Combo3_0x,
+    Combo3_5x,
+}
+use ComboMult::*;
+
+impl ComboMult {
+    fn mult(&self, streak: i32) -> f64 {
+        let base: f64 = match self {
+            Combo1_0x => 1.0,
+            Combo1_5x => 1.5,
+            Combo2_0x => 2.0,
+            Combo2_5x => 2.5,
+            Combo3_0x => 3.0,
+            Combo3_5x => 3.5,
+        };
+
+        assert!(streak >= 1);
+        assert!(streak <= 10);
+        base.powi(streak - 1).ceil()
+    }
+
+    fn upgrade_cost(&self) -> Option<f64> {
+        match self {
+            Combo1_0x => Some(1e0),
+            Combo1_5x => Some(1e1),
+            Combo2_0x => Some(1e2),
+            Combo2_5x => Some(1e3),
+            Combo3_0x => Some(1e4),
+            Combo3_5x => None,
+        }
+    }
+
+    fn upgrade(&mut self) {
+        let next = match self {
+            Combo1_0x => Combo1_5x,
+            Combo1_5x => Combo2_0x,
+            Combo2_0x => Combo2_5x,
+            Combo2_5x => Combo3_0x,
+            Combo3_0x => Combo3_5x,
+            Combo3_5x => unreachable!("Cannot upgrade {self:?}"),
+        };
+        *self = next;
+    }
+}
+
 #[cfg(test)]
 mod t {
     use super::*;
@@ -256,11 +337,10 @@ mod t {
     #[test]
     fn check_combo_reward_penny() {
         // See: https://docs.google.com/spreadsheets/d/1pYChxjP15Q21vibqacCil9VoOiuoNK1Siuw27SFxVVU/edit?gid=0#gid=0
-        let mut state = State::new();
-        state.coin = Penny;
-        state.heads_combo_mult = 1.5;
 
-        let rewards: Vec<_> = (1..10).map(|i| state.combo_reward(i)).collect();
+        let rewards: Vec<_> = (1..10)
+            .map(|i| Penny.dollars() * Combo1_5x.mult(i))
+            .collect();
         let expected = [
             0.01, //
             0.02, //
@@ -279,11 +359,10 @@ mod t {
     #[test]
     fn check_combo_reward_dollar() {
         // See: https://docs.google.com/spreadsheets/d/1pYChxjP15Q21vibqacCil9VoOiuoNK1Siuw27SFxVVU/edit?gid=0#gid=0
-        let mut state = State::new();
-        state.coin = Dollar;
-        state.heads_combo_mult = 3.5;
 
-        let rewards: Vec<_> = (1..10).map(|i| state.combo_reward(i)).collect();
+        let rewards: Vec<_> = (1..10)
+            .map(|i| Dollar.dollars() * Combo3_5x.mult(i))
+            .collect();
         let expected = [
             1.00,     //
             4.00,     //
