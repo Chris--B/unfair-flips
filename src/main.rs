@@ -11,7 +11,7 @@ use Flip::*;
 
 fn flip(state: &State) -> Flip {
     let x = rand::rng().random_range(0.0..1.0);
-    if x <= state.heads_chance { H } else { T }
+    if x <= state.heads_chance.odds() { H } else { T }
 }
 
 fn round_to_cent(cash: f64) -> f64 {
@@ -20,7 +20,7 @@ fn round_to_cent(cash: f64) -> f64 {
 
 #[derive(Debug, Clone)]
 struct State {
-    heads_chance: f64,
+    heads_chance: Chance,
     coin: Coin,
     heads_combo_mult: f64,
     cash: f64,
@@ -31,7 +31,7 @@ struct State {
 impl State {
     fn new() -> Self {
         Self {
-            heads_chance: 0.2,
+            heads_chance: C20,
             coin: Penny,
             heads_combo_mult: 0.5,
             cash: 0.0,
@@ -56,17 +56,32 @@ impl State {
 
         loop {
             // Try to upgrade anything if we can
-            if let Some(cost) = self.coin.upgrade_cost()
-                && self.cash >= cost
             {
-                println!("[{flips:>3}] {}", self.dollars());
+                // Coin
+                if let Some(cost) = self.coin.upgrade_cost()
+                    && self.cash >= cost
+                {
+                    println!("[{flips:>3}] {}", self.dollars());
 
-                let old = self.coin.clone();
-                self.coin.upgrade();
-                self.cash -= cost;
-                println!("    {old:?} -> {:?}", self.coin);
+                    let old = self.coin.clone();
+                    self.coin.upgrade();
+                    self.cash -= cost;
+                    println!("    {old:?} -> {:?}", self.coin);
+                }
+
+                // Heads Chance
+                if let Some(cost) = self.heads_chance.upgrade_cost()
+                    && self.cash >= cost
+                {
+                    println!("[{flips:>3}] {}", self.dollars());
+
+                    let old = self.heads_chance.clone();
+                    self.heads_chance.upgrade();
+                    self.cash -= cost;
+                    println!("    {old:?} -> {:?}", self.heads_chance);
+                }
+
             }
-
             assert!(self.cash >= 0.0, "cash={:.2}", self.cash);
             {
                 let cash = self.cash;
@@ -85,7 +100,7 @@ impl State {
                 streak += 1;
 
                 let gain = self.combo_reward(streak);
-                println!("[{flips:>3}] {next:?} {} + ${gain:.2}", self.dollars());
+                // println!("[{flips:>3}] {next:?} {} + ${gain:.2}", self.dollars());
                 self.cash += gain;
                 self.cash = round_to_cent(self.cash);
 
@@ -109,12 +124,10 @@ impl State {
 
 fn main() {
     let mut state = State::new();
-    state.heads_combo_mult = 1.0 + 0.5;
-
     let flips = state.flip_until_10();
 
     println!("Got 10-Heads in {flips} flips:");
-    println!("   Odds: {:.2}%", state.heads_chance * 100.);
+    println!("   Odds: {:.2}%", state.heads_chance.odds() * 100.);
     println!("   Coin: {:?}", state.coin);
     for (i, &count) in state.histo.iter().enumerate() {
         if count == 0 {
@@ -166,6 +179,66 @@ impl Coin {
             Dime => Quarter,
             Quarter => Dollar,
             Dollar => unreachable!("Cannot upgrade {self:?}"),
+        };
+        *self = next;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Chance {
+    C20,
+    C25,
+    C30,
+    C35,
+    C40,
+    C45,
+    C50,
+    C55,
+    C60, // Allegedly??
+}
+use Chance::*;
+
+impl Chance {
+    fn odds(&self) -> f64 {
+        match self {
+            C20 => 0.20,
+            C25 => 0.25,
+            C30 => 0.30,
+            C35 => 0.35,
+            C40 => 0.40,
+            C45 => 0.45,
+            C50 => 0.50,
+            C55 => 0.55,
+            C60 => 0.60,
+        }
+    }
+
+    fn upgrade_cost(&self) -> Option<f64> {
+        match self {
+            // TODO: Check these
+            C20 => Some(1e-2),
+            C25 => Some(1e-1),
+            C30 => Some(1e0),
+            C35 => Some(1e1),
+            C40 => Some(1e2),
+            C45 => Some(1e3),
+            C50 => Some(1e4),
+            C55 => Some(1e5),
+            C60 => None,
+        }
+    }
+
+    fn upgrade(&mut self) {
+        let next = match self {
+            C20 => C25,
+            C25 => C30,
+            C30 => C35,
+            C35 => C40,
+            C40 => C45,
+            C45 => C50,
+            C50 => C55,
+            C55 => C60,
+            C60 => unreachable!("Cannot upgrade {self:?}"),
         };
         *self = next;
     }
